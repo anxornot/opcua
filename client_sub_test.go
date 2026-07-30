@@ -89,6 +89,29 @@ func recreateResponder(newSubID uint32, itemStatus ua.StatusCode) func(ua.Reques
 	}
 }
 
+// rejectingRecreateResponder answers DeleteSubscriptions and then rejects
+// CreateSubscription with a service level status, so the recreate fails before
+// the replacement subscription exists.
+func rejectingRecreateResponder(status ua.StatusCode) func(ua.Request, func(ua.Response) error) error {
+	return func(req ua.Request, h func(ua.Response) error) error {
+		switch req.(type) {
+		case *ua.DeleteSubscriptionsRequest:
+			return h(&ua.DeleteSubscriptionsResponse{
+				ResponseHeader: &ua.ResponseHeader{},
+				Results:        []ua.StatusCode{ua.StatusOK},
+			})
+
+		case *ua.CreateSubscriptionRequest:
+			return h(&ua.CreateSubscriptionResponse{
+				ResponseHeader: &ua.ResponseHeader{ServiceResult: status},
+			})
+
+		default:
+			return ua.StatusBadServiceUnsupported
+		}
+	}
+}
+
 // newTestSubscription registers a subscription with one monitored item on c.
 func newTestSubscription(t *testing.T, c *Client, stub *stubClient, id uint32) *Subscription {
 	t.Helper()
@@ -205,5 +228,21 @@ func TestRepublishOrRecreateSubscriptions(t *testing.T) {
 			}
 		}
 		require.True(t, sawCreate, "subscription was not recreated after republish failed")
+	})
+
+	// The retry the failure above asks for is only useful if the subscription
+	// is still there to retry. recreateSubscription used to forget it before
+	// creating the replacement, so a rejected create dropped it for good and
+	// the next round had nothing to transfer.
+	t.Run("failed create keeps the subscription registered", func(t *testing.T) {
+		c, err := NewClient("opc.tcp://example.com:4840")
+		require.NoError(t, err)
+
+		stub := &stubClient{send: rejectingRecreateResponder(ua.StatusBadTooManySubscriptions)}
+		newTestSubscription(t, c, stub, 6647)
+
+		action, _ := c.republishOrRecreateSubscriptions(context.Background(), nil, []uint32{6647}, nil)
+		require.Equal(t, recreateSession, action)
+		require.Equal(t, []uint32{6647}, c.SubscriptionIDs())
 	})
 }

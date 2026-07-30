@@ -100,10 +100,15 @@ func (c *Client) recreateSubscription(ctx context.Context, id uint32) error {
 	}
 
 	sub.recreate_delete(ctx)
-	c.forgetSubscription_NeedsSubMuxLock(ctx, id)
+
+	// the subscription stays registered under its old id until the replacement
+	// exists, so that a failed create leaves it for the reconnect loop to retry
+	// instead of dropping it. recreate_create only assigns the new id on
+	// success, so the old id is still the key to forget here.
 	if err := sub.recreate_create(ctx); err != nil {
 		return err
 	}
+	c.forgetSubscription_NeedsSubMuxLock(ctx, id)
 
 	if err := c.registerSubscription_NeedsSubMuxLock(sub); err != nil {
 		return err
