@@ -91,7 +91,8 @@ func recreateResponder(newSubID uint32, itemStatus ua.StatusCode) func(ua.Reques
 
 // rejectingRecreateResponder answers DeleteSubscriptions and then rejects
 // CreateSubscription with a service level status, so the recreate fails before
-// the replacement subscription exists.
+// the replacement subscription exists. A monitored item the server rejects is
+// not enough to fail a recreate, see recreate_monitoredItems.
 func rejectingRecreateResponder(status ua.StatusCode) func(ua.Request, func(ua.Response) error) error {
 	return func(req ua.Request, h func(ua.Response) error) error {
 		switch req.(type) {
@@ -172,9 +173,8 @@ func TestRepublishOrRecreateSubscriptions(t *testing.T) {
 		require.Equal(t, []uint32{4711}, c.SubscriptionIDs())
 	})
 
-	// This is the #876 case. The server accepts the new subscription but
-	// rejects the monitored item because the node is gone from its address
-	// space, so recreateSubscription fails. The step has to hand
+	// This is the #876 case: the subscription cannot be brought back, here
+	// because the server refuses to create it. The step has to hand
 	// recreateSession back to the reconnect loop instead of none, otherwise
 	// the loop marks the client Connected with no live subscription and never
 	// tries again.
@@ -182,7 +182,7 @@ func TestRepublishOrRecreateSubscriptions(t *testing.T) {
 		c, err := NewClient("opc.tcp://example.com:4840")
 		require.NoError(t, err)
 
-		stub := &stubClient{send: recreateResponder(8581, ua.StatusBadNodeIDUnknown)}
+		stub := &stubClient{send: rejectingRecreateResponder(ua.StatusBadTooManySubscriptions)}
 		newTestSubscription(t, c, stub, 6647)
 
 		action, activeSubs := c.republishOrRecreateSubscriptions(context.Background(), nil, []uint32{6647}, nil)
@@ -198,7 +198,7 @@ func TestRepublishOrRecreateSubscriptions(t *testing.T) {
 		require.NoError(t, err)
 
 		good := &stubClient{send: recreateResponder(4711, ua.StatusOK)}
-		bad := &stubClient{send: recreateResponder(8581, ua.StatusBadNodeIDUnknown)}
+		bad := &stubClient{send: rejectingRecreateResponder(ua.StatusBadTooManySubscriptions)}
 		newTestSubscription(t, c, good, 1)
 		newTestSubscription(t, c, bad, 2)
 
@@ -214,7 +214,7 @@ func TestRepublishOrRecreateSubscriptions(t *testing.T) {
 		c, err := NewClient("opc.tcp://example.com:4840")
 		require.NoError(t, err)
 
-		stub := &stubClient{send: recreateResponder(8581, ua.StatusBadNodeIDUnknown)}
+		stub := &stubClient{send: rejectingRecreateResponder(ua.StatusBadTooManySubscriptions)}
 		newTestSubscription(t, c, stub, 3)
 
 		action, _ := c.republishOrRecreateSubscriptions(context.Background(), []uint32{3}, nil, map[uint32][]uint32{3: {1}})
