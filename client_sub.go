@@ -112,6 +112,44 @@ func (c *Client) recreateSubscription(ctx context.Context, id uint32) error {
 	return sub.recreate_monitoredItems(ctx)
 }
 
+// republishOrRecreateSubscriptions performs the restoreSubscriptions step of
+// the reconnect state machine. It republishes the subscriptions the server has
+// transferred to the new session and recreates the ones which could not be
+// transferred. Subscriptions for which the republish fails are recreated as
+// well.
+//
+// It returns the next reconnect action and the number of subscriptions which
+// are active again.
+//
+// The next action is none when every subscription was restored. If at least
+// one subscription could not be recreated the next action is recreateSession
+// so that the reconnect loop rebuilds the session and tries again instead of
+// leaving the client connected with a subscription that is gone.
+func (c *Client) republishOrRecreateSubscriptions(ctx context.Context, subsToRepublish, subsToRecreate []uint32, availableSeqs map[uint32][]uint32) (reconnectAction, int) {
+	dlog := debug.NewPrefixLogger("client: restoreSubscriptions: ")
+
+	action, activeSubs := none, 0
+
+	for _, subID := range subsToRepublish {
+		if err := c.republishSubscription(ctx, subID, availableSeqs[subID]); err != nil {
+			dlog.Printf("republish of subscription %d failed", subID)
+			subsToRecreate = append(subsToRecreate, subID)
+		}
+		activeSubs++
+	}
+
+	for _, subID := range subsToRecreate {
+		if err := c.recreateSubscription(ctx, subID); err != nil {
+			dlog.Printf("recreate subscription %d failed: %v", subID, err)
+			action = recreateSession
+			continue
+		}
+		activeSubs++
+	}
+
+	return action, activeSubs
+}
+
 // transferSubscriptions ask the server to transfer the given subscriptions
 // of the previous session to the current one.
 func (c *Client) transferSubscriptions(ctx context.Context, ids []uint32) (*ua.TransferSubscriptionsResponse, error) {
