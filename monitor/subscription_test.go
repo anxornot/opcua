@@ -189,11 +189,11 @@ func wantValues(nodeIDs []*ua.NodeID, n int) map[string][]int32 {
 // generated for the list Node", and the MonitoredItemNotification carried in a
 // DataChangeNotification (Part 4 §7.25.2, Table 161) holds only that handle and
 // a Value — no NodeID, no MonitoredItemID, no index back into the create
-// request. So when AddMonitorItems stamps each handle through the caller's
-// shared pointer instead of onto a per-item copy, all three items reach the wire
-// carrying the last handle allocated, every notification resolves to the last
-// node, and the caller silently receives correct values attributed to the wrong
-// nodes. Nothing reports it: no status code exists for a duplicate handle, and
+// request. So an AddMonitorItems that stamps each handle through the caller's
+// shared pointer instead of onto a per-item copy sends all three items carrying
+// the last handle allocated: every notification then resolves to the last node,
+// and the caller silently receives correct values attributed to the wrong nodes.
+// Nothing reports it: no status code exists for a duplicate handle, and
 // §5.13.2.1 leaves the server free to accept the parameters and echo them back.
 //
 // SamplingInterval and QueueSize are non-default so that the shared struct is
@@ -238,10 +238,11 @@ func TestBatchedAddMonitorItemsNotifiesEachNode(t *testing.T) {
 // AddMonitorItems copies the caller's parameters only when there are any; with
 // nil parameters the request keeps the defaults that
 // opcua.NewMonitoredItemCreateRequestWithDefaults supplies, handle included.
-// Nothing else in this package reaches that branch, and AddNodeIDs, AddNodes and
-// NodeMonitor.Subscribe all depend on it, so this is the only test that notices a
-// change assuming parameters are always present: invert the guard and this test
-// panics on a nil dereference while the capstone above stays green.
+// AddNodeIDs, AddNodes and NodeMonitor.Subscribe all depend on that branch and
+// no other test here enters it, so this is the only guard against a change that
+// assumes parameters are always present: invert the guard and this test dies on
+// a nil dereference inside AddMonitorItems, while
+// TestBatchedAddMonitorItemsNotifiesEachNode above still passes.
 func TestAddNodeIDsWithNilParametersNotifies(t *testing.T) {
 	ctx := context.Background()
 
