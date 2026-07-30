@@ -3,6 +3,7 @@ package opcua
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -501,7 +502,10 @@ func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 		for i, item := range items {
 			result := res.Results[i]
 			if status := result.StatusCode; status != ua.StatusOK {
-				dlog.Printf("dropping monitored item %s: %v", monitoredNodeID(item), status)
+				// not dlog: losing a monitored item across a reconnect is
+				// data the caller stops receiving, so it has to be visible
+				// without debug logging turned on.
+				log.Printf("sub %d: dropping monitored item %s on recreate: %v", s.SubscriptionID, monitoredNodeID(item), status)
 				continue
 			}
 			restored[result.MonitoredItemID] = &monitoredItem{
@@ -517,7 +521,7 @@ func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 	s.itemsMu.Unlock()
 
 	if len(restored) != prevCount {
-		dlog.Printf("subscription recreated with %d of %d monitored items", len(restored), prevCount)
+		dlog.Printf("recreated with %d of %d monitored items", len(restored), prevCount)
 		return nil
 	}
 	dlog.Printf("subscription successfully recreated")
