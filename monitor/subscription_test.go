@@ -14,19 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// notificationTimeout caps how long a test waits for notifications. The server
-// pushes an initial value as soon as a monitored item is created, so a passing
-// run needs a small fraction of this. The cap is what keeps a failing run
-// affordable: the notifications a regression loses never arrive, so the test
-// waits out the whole deadline on every required CI context.
 const notificationTimeout = 5 * time.Second
 
-// testNodes are the variable nodes the loopback server exposes. Each one holds a
-// different Int32, so the value in a notification says which node produced it
-// independently of the NodeID the subscription reports it under — that is what
-// lets a test check attribution rather than only how many nodes showed up. Two
-// nodes would already go red on the handle defect; three keeps a partial
-// collapse — two of the three sharing a handle — distinguishable from a total one.
+// testNodes holds distinct Int32 values so a notification's value identifies
+// which node produced it.
 var testNodes = []struct {
 	name  string
 	value int32
@@ -36,24 +27,8 @@ var testNodes = []struct {
 	{"batch_c", 30},
 }
 
-// startTestServer starts a loopback server exposing testNodes as Int32
-// variables, and returns its endpoint URL with the NodeIDs of those variables,
-// in the same order as testNodes so a caller can pair each NodeID with the value
-// behind it.
-//
-// The server is closed through t.Cleanup rather than by the caller, so that it
-// outlives the client and subscription cleanups registered after it. Closing it
-// first would leave Unsubscribe waiting out its request timeout against a dead
-// listener.
-//
-// The port comes from binding 127.0.0.1:0 and closing the listener again, which
-// leaves a window in which another process — or another test binary picking a
-// port the same way — can take it before the server binds it. An attempt that
-// loses that race is abandoned and the whole fixture rebuilt on a fresh port:
-// server.New fixes the listen address from its first endpoint and Start has no
-// setter for it, so retrying Start alone would rebind the same lost port
-// forever. Exhausting the attempts calls t.Fatalf rather than log.Fatalf, which
-// would take every other test in the run down with it.
+// startTestServer retries on a fresh port because server.New fixes the
+// listen address from its first endpoint, and Start has no setter to change it.
 func startTestServer(t *testing.T) (string, []*ua.NodeID) {
 	t.Helper()
 
@@ -89,23 +64,19 @@ func startTestServer(t *testing.T) (string, []*ua.NodeID) {
 	return "", nil
 }
 
-// freePort reserves an ephemeral port and releases it, returning the number.
 func freePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	// A port still held by an unclosed listener is not free, so a Close failure
-	// invalidates the reservation rather than being merely worth logging.
+	// A port still held by an unclosed listener isn't free.
 	if err := l.Close(); err != nil {
 		return 0, err
 	}
 	return port, nil
 }
 
-// newTestSubscription connects a client to endpoint and returns a channel-based
-// subscription with no nodes attached yet, plus the channel it delivers on.
 func newTestSubscription(t *testing.T, ctx context.Context, endpoint string) (*Subscription, <-chan *DataChangeMessage) {
 	t.Helper()
 
@@ -128,17 +99,6 @@ func newTestSubscription(t *testing.T, ctx context.Context, endpoint string) (*S
 	return sub, ch
 }
 
-// valuesByNodeID reads notifications until want NodeIDs have delivered a value
-// or notificationTimeout expires, and returns the Int32 values each NodeID was
-// seen carrying, in arrival order and without repeats. A node re-reporting a
-// value it already delivered is therefore indistinguishable from one reporting
-// it once, while a NodeID that delivers two different values keeps both — which
-// is what several nodes' notifications arriving under one identity looks like
-// from here.
-//
-// A short or mispaired result is not failed here: the caller compares the whole
-// mapping, so a regression reports which node received which value instead of
-// only that the deadline passed.
 func valuesByNodeID(t *testing.T, ch <-chan *DataChangeMessage, want int) map[string][]int32 {
 	t.Helper()
 
@@ -166,8 +126,7 @@ func valuesByNodeID(t *testing.T, ch <-chan *DataChangeMessage, want int) map[st
 	return got
 }
 
-// wantValues is the mapping valuesByNodeID should return for the first n nodes
-// the fixture exposes: each NodeID paired with the single value written into it.
+// wantValues pairs the first n nodeIDs with testNodes' values, in order.
 func wantValues(nodeIDs []*ua.NodeID, n int) map[string][]int32 {
 	want := make(map[string][]int32, n)
 	for i := range n {
@@ -176,38 +135,10 @@ func wantValues(nodeIDs []*ua.NodeID, n int) map[string][]int32 {
 	return want
 }
 
-// TestBatchedAddMonitorItemsNotifiesEachNode monitors three nodes in a single
-// AddMonitorItems call with all three Requests sharing one
-// *ua.MonitoringParameters value, and requires each node's own value to arrive
-// under that node's NodeID.
-//
-// Pairing is what the assertion is for. Counting how many distinct nodes showed
-// up would pass on any permutation of the handle-to-NodeID mapping, which
-// delivers every value under some other node's identity and is the same failure
-// as delivering them all under one — the caller is misinformed either way. The
-// nodes hold distinct values, so comparing the whole mapping pins each value to
-// the node it was written into.
-//
-// Sharing one parameters value across Requests is the input reported in issue
-// #880, and the reason it matters is that the ClientHandle is all a client has
-// to attribute a value to a node. Part 4 §7.21 defines the field as the
-// "Client-supplied id of the MonitoredItem. This id is used in Notifications
-// generated for the list Node", and the MonitoredItemNotification carried in a
-// DataChangeNotification (Part 4 §7.25.2, Table 161) holds only that handle and
-// a Value — no NodeID, no MonitoredItemID, no index back into the create
-// request. So an AddMonitorItems that stamps each handle through the caller's
-// shared pointer instead of onto a per-item copy sends all three items carrying
-// the last handle allocated: every notification then resolves to the last node,
-// and the caller silently receives correct values attributed to the wrong nodes.
-// Nothing reports it: no status code exists for a duplicate handle, and
-// §5.13.2.1 leaves the server free to accept the parameters and echo them back.
-//
-// SamplingInterval and QueueSize are non-default so that the shared struct is
-// the one issue #880 describes rather than an empty one. They are not asserted
-// on, and cannot be from here: the in-tree server hardcodes RevisedQueueSize and
-// revises the sampling interval to the subscription's publishing interval, so
-// nothing that comes back reports whether the caller's parameters survived the
-// copy. What this test pins is attribution.
+// TestBatchedAddMonitorItemsNotifiesEachNode verifies that each node's value
+// arrives under its own NodeID. A MonitoredItemNotification carries only a
+// handle and a value, so duplicate ClientHandles would make values
+// indistinguishable.
 func TestBatchedAddMonitorItemsNotifiesEachNode(t *testing.T) {
 	ctx := context.Background()
 
@@ -237,18 +168,8 @@ func TestBatchedAddMonitorItemsNotifiesEachNode(t *testing.T) {
 		"each node's value must arrive under its own NodeID; got %v", got)
 }
 
-// TestAddNodeIDsWithNilParametersNotifies monitors a node through AddNodeIDs,
-// which builds its Requests with MonitoringParameters left nil, and requires
-// that node's value to arrive under its own NodeID.
-//
-// AddMonitorItems copies the caller's parameters only when there are any; with
-// nil parameters the request keeps the defaults that
-// opcua.NewMonitoredItemCreateRequestWithDefaults supplies, handle included.
-// AddNodeIDs, AddNodes and NodeMonitor.Subscribe all depend on that branch and
-// no other test here enters it, so this is the only guard against a change that
-// assumes parameters are always present: invert the guard and this test dies on
-// a nil dereference inside AddMonitorItems, while
-// TestBatchedAddMonitorItemsNotifiesEachNode above still passes.
+// TestAddNodeIDsWithNilParametersNotifies verifies that a node monitored with
+// nil MonitoringParameters still arrives under its own NodeID.
 func TestAddNodeIDsWithNilParametersNotifies(t *testing.T) {
 	ctx := context.Background()
 
