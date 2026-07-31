@@ -8,8 +8,7 @@ import (
 
 func TestBuildCreateRequestKeepsCallerParameters(t *testing.T) {
 	filter := &ua.ExtensionObject{}
-	// Every value differs from the constructor's defaults (SamplingInterval 0,
-	// QueueSize 10, DiscardOldest true, Filter nil), so a request that ignored
+	// All values differ from constructor defaults so a request that ignored
 	// the caller cannot pass by coincidence.
 	caller := &ua.MonitoringParameters{
 		SamplingInterval: 250,
@@ -76,11 +75,8 @@ func TestBuildCreateRequestKeepsCallerMonitoringMode(t *testing.T) {
 	}
 }
 
-// TestBuildCreateRequestDoesNotWriteCallerParameters is the guard against the
-// defect reported in issue #880: one Request used for two calls must leave the
-// caller's parameters as it found them and yield a fresh copy each time, since
-// two requests sharing one parameters struct would reach the wire carrying the
-// same handle.
+// TestBuildCreateRequestDoesNotWriteCallerParameters verifies that reusing one
+// Request produces a fresh copy each time, not a shared struct.
 func TestBuildCreateRequestDoesNotWriteCallerParameters(t *testing.T) {
 	shared := &ua.MonitoringParameters{SamplingInterval: 100, QueueSize: 5}
 	before := *shared
@@ -151,9 +147,8 @@ func TestBuildModifyRequestsSkipsNilParameters(t *testing.T) {
 	}
 }
 
-// TestBuildModifyRequestsSkipsNodesMatchingNoItem requires a node this
-// subscription does not monitor to produce no request at all, rather than one
-// naming item 0 with a zero handle.
+// TestBuildModifyRequestsSkipsNodesMatchingNoItem verifies that unmonitored
+// nodes produce no request.
 func TestBuildModifyRequestsSkipsNodesMatchingNoItem(t *testing.T) {
 	monitored := ua.NewNumericNodeID(0, 2258)
 	items := []Item{{id: 77, nodeID: monitored, handle: 55}}
@@ -169,13 +164,10 @@ func TestBuildModifyRequestsSkipsNodesMatchingNoItem(t *testing.T) {
 	}
 }
 
-// TestBuildModifyRequestsBuildsOneRequestPerNode requires one request per
-// Request value even where several monitored items carry the node's NodeID: the
-// search stops at the first match, so item 77 is modified and item 88 is left
-// alone.
+// TestBuildModifyRequestsBuildsOneRequestPerNode verifies one request per
+// Request even when multiple items share a NodeID.
 func TestBuildModifyRequestsBuildsOneRequestPerNode(t *testing.T) {
 	nodeID := ua.NewNumericNodeID(0, 2258)
-	// The same node monitored twice.
 	items := []Item{
 		{id: 77, nodeID: nodeID, handle: 55},
 		{id: 88, nodeID: nodeID, handle: 66},
@@ -195,12 +187,9 @@ func TestBuildModifyRequestsBuildsOneRequestPerNode(t *testing.T) {
 	}
 }
 
-// TestBuildModifyRequestsStampsEachNodesOwnHandle requires two nodes in one call
-// to yield two requests, each carrying its own item's handle on its own copy of
-// its own parameters. One parameters struct shared by both requests would send
-// every item the last node's handle, which is the modify-side form of the defect
-// reported in issue #880; stopping after the first node would leave the second
-// node unmodified with no error.
+// TestBuildModifyRequestsStampsEachNodesOwnHandle verifies that two nodes
+// produce two independent requests, each with its own handle and parameters
+// copy, and that both are modified.
 func TestBuildModifyRequestsStampsEachNodesOwnHandle(t *testing.T) {
 	first := ua.NewNumericNodeID(0, 2258)
 	second := ua.NewNumericNodeID(0, 2259)
