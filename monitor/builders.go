@@ -8,9 +8,11 @@ import (
 func buildCreateRequest(node Request, handle uint32) *ua.MonitoredItemCreateRequest {
 	request := opcua.NewMonitoredItemCreateRequestWithDefaults(node.NodeID, ua.AttributeIDValue, handle)
 
-	params := *node.MonitoringParameters
-	params.ClientHandle = handle
-	request.RequestedParameters = &params
+	if node.MonitoringParameters != nil {
+		params := *node.MonitoringParameters
+		params.ClientHandle = handle
+		request.RequestedParameters = &params
+	}
 
 	return request
 }

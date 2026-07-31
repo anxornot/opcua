@@ -41,6 +41,28 @@ func TestBuildCreateRequestKeepsCallerParameters(t *testing.T) {
 	}
 }
 
+func TestBuildCreateRequestWithNilParametersUsesDefaults(t *testing.T) {
+	node := Request{NodeID: ua.NewNumericNodeID(0, 2258)}
+
+	got := buildCreateRequest(node, 9).RequestedParameters
+
+	if got.ClientHandle != 9 {
+		t.Errorf("ClientHandle = %d, want 9", got.ClientHandle)
+	}
+	if got.QueueSize != 10 {
+		t.Errorf("QueueSize = %d, want the default 10", got.QueueSize)
+	}
+	if !got.DiscardOldest {
+		t.Error("DiscardOldest = false, want the default true")
+	}
+	if got.SamplingInterval != 0 {
+		t.Errorf("SamplingInterval = %v, want the default 0", got.SamplingInterval)
+	}
+	if got.Filter != nil {
+		t.Errorf("Filter = %v, want the default nil", got.Filter)
+	}
+}
+
 // This test is a regression guard for issue #880, not a driver: it passes
 // against the first stub of buildCreateRequest and must keep passing.
 func TestBuildCreateRequestDoesNotWriteCallerParameters(t *testing.T) {
