@@ -17,3 +17,29 @@ func buildCreateRequest(node Request, handle uint32) *ua.MonitoredItemCreateRequ
 
 	return request
 }
+
+func buildModifyRequests(nodes []Request, items []Item) []*ua.MonitoredItemModifyRequest {
+	requests := make([]*ua.MonitoredItemModifyRequest, 0)
+
+	for _, node := range nodes {
+		for _, item := range items {
+			if item.nodeID.String() != node.NodeID.String() {
+				continue
+			}
+
+			if node.MonitoringParameters == nil {
+				break
+			}
+
+			params := *node.MonitoringParameters
+			params.ClientHandle = item.handle
+			requests = append(requests, &ua.MonitoredItemModifyRequest{
+				MonitoredItemID:     item.id,
+				RequestedParameters: &params,
+			})
+			break
+		}
+	}
+
+	return requests
+}
