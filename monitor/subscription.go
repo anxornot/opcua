@@ -1,8 +1,9 @@
 // Package monitor provides an API for subscribing to OPC UA node value changes.
 //
-// The subscription owns ClientHandles; it ignores caller values and uses them
-// to route notifications. Callers may share one ua.MonitoringParameters across
-// many Requests.
+// The subscription owns ClientHandles: it ignores any value a caller sets and
+// assigns its own, which is how incoming notifications are matched back to
+// nodes. Callers may therefore share one ua.MonitoringParameters across many
+// Requests. See Part 4, 7.21.
 package monitor
 
 import (
@@ -107,8 +108,9 @@ type Request struct {
 	MonitoringMode ua.MonitoringMode
 
 	// MonitoringParameters holds this node's monitoring settings. Any
-	// ClientHandle you set is ignored: the subscription assigns its own on a
-	// private, shallow copy, so one instance may be shared across Requests.
+	// ClientHandle you set is ignored: Part 4, 7.21 scopes the handle to a
+	// single MonitoredItem, so the subscription assigns its own on a private,
+	// shallow copy and one instance may be shared across Requests.
 	// The copy leaves Filter and NodeID aliased with the caller; mutating
 	// either afterward is undefined, since Filter is replayed verbatim on
 	// reconnect.
@@ -334,7 +336,7 @@ func (s *Subscription) AddNodeIDs(ctx context.Context, nodes ...*ua.NodeID) erro
 }
 
 // AddMonitorItems adds monitored nodes. Any ClientHandle set in a Request is
-// ignored; the subscription assigns its own.
+// ignored; the subscription assigns its own. See Part 4, 7.21.
 func (s *Subscription) AddMonitorItems(ctx context.Context, nodes ...Request) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -470,7 +472,7 @@ func (s *Subscription) RemoveMonitorItems(ctx context.Context, items ...Item) er
 }
 
 // ModifyMonitorItems modifies monitored nodes. Any ClientHandle set in a
-// Request is ignored; the subscription assigns its own.
+// Request is ignored; the subscription assigns its own. See Part 4, 7.21.
 func (s *Subscription) ModifyMonitorItems(ctx context.Context, nodes ...Request) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
