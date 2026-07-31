@@ -1,3 +1,11 @@
+// Package monitor provides a high-level API for subscribing to OPC UA node
+// value changes.
+//
+// The subscription owns the ClientHandle of every monitored item: any value a
+// caller sets is ignored, and the subscription stamps its own handle on a
+// private copy, because handles are how incoming notifications are routed back
+// to nodes. Callers may therefore share one ua.MonitoringParameters across many
+// Requests.
 package monitor
 
 import (
@@ -98,8 +106,18 @@ func (m *Item) NodeID() *ua.NodeID {
 
 // Request is a struct to manage a request to monitor a node or modify a monitored node
 type Request struct {
-	NodeID               *ua.NodeID
-	MonitoringMode       ua.MonitoringMode
+	NodeID         *ua.NodeID
+	MonitoringMode ua.MonitoringMode
+
+	// MonitoringParameters carries the monitoring characteristics for this node.
+	// Any ClientHandle you set here is ignored: the subscription stamps its own
+	// handle on a private copy, so that incoming notifications can be routed
+	// back to the right node. Parameters are copied per node, so one instance
+	// may be shared across Requests.
+	//
+	// The copy is shallow. Filter is shared with the subscription and replayed
+	// on reconnect, so do not mutate the filter's contents after passing the
+	// Request. NodeID is likewise retained by reference.
 	MonitoringParameters *ua.MonitoringParameters
 }
 
@@ -322,6 +340,9 @@ func (s *Subscription) AddNodeIDs(ctx context.Context, nodes ...*ua.NodeID) erro
 }
 
 // AddMonitorItems adds nodes with monitoring parameters to the subscription
+//
+// ClientHandle in each Request's MonitoringParameters is assigned by the
+// subscription; any value set by the caller is ignored.
 func (s *Subscription) AddMonitorItems(ctx context.Context, nodes ...Request) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -457,6 +478,9 @@ func (s *Subscription) RemoveMonitorItems(ctx context.Context, items ...Item) er
 }
 
 // ModifyMonitorItems modifies nodes with monitoring parameters to the subscription
+//
+// ClientHandle in each Request's MonitoringParameters is assigned by the
+// subscription; any value set by the caller is ignored.
 func (s *Subscription) ModifyMonitorItems(ctx context.Context, nodes ...Request) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
