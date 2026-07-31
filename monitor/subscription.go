@@ -345,8 +345,10 @@ func (s *Subscription) AddMonitorItems(ctx context.Context, nodes ...Request) ([
 		request.MonitoringMode = node.MonitoringMode
 
 		if node.MonitoringParameters != nil {
-			request.RequestedParameters = node.MonitoringParameters
-			request.RequestedParameters.ClientHandle = handle
+			// copy so each request owns its ClientHandle; sharing would map all items to the last node
+			params := *node.MonitoringParameters
+			params.ClientHandle = handle
+			request.RequestedParameters = &params
 		}
 		toAdd = append(toAdd, request)
 	}
@@ -484,11 +486,13 @@ func (s *Subscription) ModifyMonitorItems(ctx context.Context, nodes ...Request)
 				break
 			}
 
+			// Copy so each request owns its parameters (see AddMonitorItems).
+			params := *node.MonitoringParameters
+			params.ClientHandle = item.handle
 			request := &ua.MonitoredItemModifyRequest{
 				MonitoredItemID:     item.id,
-				RequestedParameters: node.MonitoringParameters,
+				RequestedParameters: &params,
 			}
-			request.RequestedParameters.ClientHandle = item.handle
 			toModify = append(toModify, request)
 			break
 		}
