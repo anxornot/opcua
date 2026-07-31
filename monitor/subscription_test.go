@@ -95,7 +95,13 @@ func freePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return l.Addr().(*net.TCPAddr).Port, l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	// A port still held by an unclosed listener is not free, so a Close failure
+	// invalidates the reservation rather than being merely worth logging.
+	if err := l.Close(); err != nil {
+		return 0, err
+	}
+	return port, nil
 }
 
 // newTestSubscription connects a client to endpoint and returns a channel-based
