@@ -7,6 +7,7 @@ import (
 
 func buildCreateRequest(node Request, handle uint32) *ua.MonitoredItemCreateRequest {
 	request := opcua.NewMonitoredItemCreateRequestWithDefaults(node.NodeID, ua.AttributeIDValue, handle)
+	request.MonitoringMode = node.MonitoringMode
 
 	if node.MonitoringParameters != nil {
 		params := *node.MonitoringParameters

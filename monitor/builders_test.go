@@ -63,6 +63,19 @@ func TestBuildCreateRequestWithNilParametersUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildCreateRequestKeepsCallerMonitoringMode(t *testing.T) {
+	node := Request{
+		NodeID:         ua.NewNumericNodeID(0, 2258),
+		MonitoringMode: ua.MonitoringModeSampling,
+	}
+
+	got := buildCreateRequest(node, 3).MonitoringMode
+
+	if got != ua.MonitoringModeSampling {
+		t.Errorf("MonitoringMode = %v, want %v", got, ua.MonitoringModeSampling)
+	}
+}
+
 // This test is a regression guard for issue #880, not a driver: it passes
 // against the first stub of buildCreateRequest and must keep passing.
 func TestBuildCreateRequestDoesNotWriteCallerParameters(t *testing.T) {
