@@ -76,8 +76,11 @@ func TestBuildCreateRequestKeepsCallerMonitoringMode(t *testing.T) {
 	}
 }
 
-// This test is a regression guard for issue #880, not a driver: it passes
-// against the first stub of buildCreateRequest and must keep passing.
+// TestBuildCreateRequestDoesNotWriteCallerParameters is the guard against the
+// defect reported in issue #880: one Request used for two calls must leave the
+// caller's parameters as it found them and yield a fresh copy each time, since
+// two requests sharing one parameters struct would reach the wire carrying the
+// same handle.
 func TestBuildCreateRequestDoesNotWriteCallerParameters(t *testing.T) {
 	shared := &ua.MonitoringParameters{SamplingInterval: 100, QueueSize: 5}
 	before := *shared
@@ -148,10 +151,9 @@ func TestBuildModifyRequestsSkipsNilParameters(t *testing.T) {
 	}
 }
 
-// The next two tests pin the control flow buildModifyRequests inherits from
-// ModifyMonitorItems. Both pass against the first stub and must keep passing:
-// they are the witness that moving the loop into a pure function changed no
-// behaviour.
+// TestBuildModifyRequestsSkipsNodesMatchingNoItem requires a node this
+// subscription does not monitor to produce no request at all, rather than one
+// naming item 0 with a zero handle.
 func TestBuildModifyRequestsSkipsNodesMatchingNoItem(t *testing.T) {
 	monitored := ua.NewNumericNodeID(0, 2258)
 	items := []Item{{id: 77, nodeID: monitored, handle: 55}}
@@ -167,6 +169,10 @@ func TestBuildModifyRequestsSkipsNodesMatchingNoItem(t *testing.T) {
 	}
 }
 
+// TestBuildModifyRequestsBuildsOneRequestPerNode requires one request per
+// Request value even where several monitored items carry the node's NodeID: the
+// search stops at the first match, so item 77 is modified and item 88 is left
+// alone.
 func TestBuildModifyRequestsBuildsOneRequestPerNode(t *testing.T) {
 	nodeID := ua.NewNumericNodeID(0, 2258)
 	// The same node monitored twice.
