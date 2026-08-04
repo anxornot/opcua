@@ -149,7 +149,7 @@ func (s *Subscription) Monitor(ctx context.Context, ts ua.TimestampsToReturn, it
 	stats.Subscription().Add("Monitor", 1)
 	stats.Subscription().Add("MonitoredItems", int64(len(items)))
 
-	// Part 4, 5.12.2.2 CreateMonitoredItems Service Parameters
+	// Part 4, 5.13.2.2 CreateMonitoredItems Service Parameters
 	req := &ua.CreateMonitoredItemsRequest{
 		SubscriptionID:     s.SubscriptionID,
 		TimestampsToReturn: ts,
@@ -302,7 +302,7 @@ func (s *Subscription) SetMonitoringMode(ctx context.Context, monitoringMode ua.
 func (s *Subscription) SetTriggering(ctx context.Context, triggeringItemID uint32, add, remove []uint32) (*ua.SetTriggeringResponse, error) {
 	stats.Subscription().Add("SetTriggering", 1)
 
-	// Part 4, 5.12.5.2 SetTriggering Service Parameters
+	// Part 4, 5.13.5.2 SetTriggering Service Parameters
 	req := &ua.SetTriggeringRequest{
 		SubscriptionID:   s.SubscriptionID,
 		TriggeringItemID: triggeringItemID,
@@ -455,12 +455,11 @@ func (s *Subscription) recreate_create(ctx context.Context) error {
 // recreate_monitoredItems restores monitored items after the recreated
 // subscription has been registered by the client.
 //
-// Part 4, 5.13.2 defines the status code of a MonitoredItemCreateResult as an
-// operation level result for that item: "Monitored Nodes can be removed from
-// the AddressSpace after the creation of a MonitoredItem. This does not affect
-// the validity of the MonitoredItem". An item the server rejects, e.g. with
-// Bad_NodeIdUnknown because the node is gone, therefore does not fail the
-// restore. It is dropped and logged and the remaining items are restored.
+// Part 4, 5.13.2.4 (Table 65) defines the status code of a
+// MonitoredItemCreateResult as an operation-level result for that item: an
+// item the server rejects, e.g. with Bad_NodeIdUnknown because the node is
+// gone, does not fail the restore. It is dropped and logged and the remaining
+// items are restored.
 func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 	dlog := debug.NewPrefixLogger("sub %d: recreate_monitoredItems: ", s.SubscriptionID)
 
