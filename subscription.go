@@ -3,6 +3,7 @@ package opcua
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -453,6 +454,13 @@ func (s *Subscription) recreate_create(ctx context.Context) error {
 
 // recreate_monitoredItems restores monitored items after the recreated
 // subscription has been registered by the client.
+//
+// Part 4, 5.13.2 defines the status code of a MonitoredItemCreateResult as an
+// operation level result for that item: "Monitored Nodes can be removed from
+// the AddressSpace after the creation of a MonitoredItem. This does not affect
+// the validity of the MonitoredItem". An item the server rejects, e.g. with
+// Bad_NodeIdUnknown because the node is gone, therefore does not fail the
+// restore. It is dropped and logged and the remaining items are restored.
 func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 	dlog := debug.NewPrefixLogger("sub %d: recreate_monitoredItems: ", s.SubscriptionID)
 
@@ -462,8 +470,12 @@ func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 	for _, mi := range s.items {
 		itemsByTimestamps[mi.ts] = append(itemsByTimestamps[mi.ts], mi.req)
 	}
-	s.items = make(map[uint32]*monitoredItem, len(s.items))
+	prevCount := len(s.items)
 	s.itemsMu.Unlock()
+
+	// the previous items stay in place until every request has been answered so
+	// that a failed request leaves them for the next reconnect attempt to send.
+	restored := make(map[uint32]*monitoredItem, prevCount)
 
 	for ts, items := range itemsByTimestamps {
 		req := &ua.CreateMonitoredItemsRequest{
@@ -481,23 +493,46 @@ func (s *Subscription) recreate_monitoredItems(ctx context.Context) error {
 			return err
 		}
 
-		for _, result := range res.Results {
-			if status := result.StatusCode; status != ua.StatusOK {
-				return status
-			}
+		// Part 4, 5.13.2.2: the size and order of the results match the size
+		// and order of itemsToCreate.
+		if len(res.Results) != len(items) {
+			return errors.Errorf("sub %d: got %d results for %d monitored items", s.SubscriptionID, len(res.Results), len(items))
 		}
 
-		s.itemsMu.Lock()
 		for i, item := range items {
-			s.items[res.Results[i].MonitoredItemID] = &monitoredItem{
+			result := res.Results[i]
+			if status := result.StatusCode; status != ua.StatusOK {
+				// not dlog: losing a monitored item across a reconnect is
+				// data the caller stops receiving, so it has to be visible
+				// without debug logging turned on.
+				log.Printf("sub %d: dropping monitored item %s on recreate: %v", s.SubscriptionID, monitoredNodeID(item), status)
+				continue
+			}
+			restored[result.MonitoredItemID] = &monitoredItem{
 				req: item,
-				res: res.Results[i],
+				res: result,
 				ts:  ts,
 			}
 		}
-		s.itemsMu.Unlock()
+	}
+
+	s.itemsMu.Lock()
+	s.items = restored
+	s.itemsMu.Unlock()
+
+	if len(restored) != prevCount {
+		dlog.Printf("recreated with %d of %d monitored items", len(restored), prevCount)
+		return nil
 	}
 	dlog.Printf("subscription successfully recreated")
 
 	return nil
+}
+
+// monitoredNodeID returns the node id a monitored item watches for logging.
+func monitoredNodeID(item *ua.MonitoredItemCreateRequest) *ua.NodeID {
+	if item == nil || item.ItemToMonitor == nil {
+		return nil
+	}
+	return item.ItemToMonitor.NodeID
 }
