@@ -126,35 +126,43 @@ func (as *NodeNameSpace) Attribute(id *ua.NodeID, attr ua.AttributeID) *ua.DataV
 		return errorDataValueWithStatus(ua.StatusBadNodeIDUnknown)
 	}
 
-	if !n.Access(ua.AccessLevelTypeCurrentRead) {
+	// OPC UA Part 3 §5.6.2: AccessLevel restricts the Value attribute only.
+	// All other attributes (NodeClass, BrowseName, DisplayName, …) must
+	// remain readable regardless of the access level.
+	if attr == ua.AttributeIDValue && !n.Access(ua.AccessLevelTypeCurrentRead) {
 		return errorDataValueWithStatus(ua.StatusBadUserAccessDenied)
-	}
-
-	switch attr {
-	case ua.AttributeIDNodeID:
-		return DataValueFromValue(id)
-	case ua.AttributeIDEventNotifier:
-		// TODO: this is a hack to force the EventNotifier to false for everything.
-		// If at some point someone or something needs to use this, this will have to go away and be
-		// fixed properly.
-		return DataValueFromValue(byte(0))
 	}
 
 	var err error
 	var a *AttrValue
 
-	if a, err = n.Attribute(attr); err != nil {
-		return errorDataValueWithStatus(ua.StatusBadAttributeIDInvalid)
-	}
-
 	switch attr {
+	case ua.AttributeIDNodeID:
+		a = &AttrValue{Value: DataValueFromValue(id)}
+	case ua.AttributeIDEventNotifier:
+		// TODO: this is a hack to force the EventNotifier to false for everything.
+		// If at some point someone or something needs to use this, this will have to go away and be
+		// fixed properly.
+		a = &AttrValue{Value: DataValueFromValue(byte(0))}
 	case ua.AttributeIDNodeClass:
+		a, err = n.Attribute(attr)
+		if err != nil {
+			return errorDataValueWithStatus(ua.StatusBadAttributeIDInvalid)
+		}
 		// TODO: we need int32 instead of uint32 here.  this isn't the right place to fix it, but it is a bandaid
 		x, ok := a.Value.Value.Value().(uint32)
 		if ok {
 			a.Value.Value = ua.MustVariant(int32(x))
 		}
 	case ua.AttributeIDDataType:
+		a, err = n.Attribute(attr)
+		if err != nil {
+			return errorDataValueWithStatus(ua.StatusBadAttributeIDInvalid)
+		}
+		// OPC UA Part 3, 5.6.2, Table 13 requires the DataType attribute to be
+		// a NodeId. This namespace stores it as either *ua.NodeID or
+		// *ua.ExpandedNodeID depending on how the node was built, so normalise
+		// it here. The stored attribute is left untouched.
 		if a.Value != nil && a.Value.Value != nil {
 			if nodeID := a.Value.Value.NodeID(); nodeID != nil {
 				dv := *a.Value
@@ -164,8 +172,13 @@ func (as *NodeNameSpace) Attribute(id *ua.NodeID, attr ua.AttributeID) *ua.DataV
 		}
 
 		return errorDataValueWithStatus(ua.StatusBadTypeMismatch)
+	default:
+		a, err = n.Attribute(attr)
 	}
 
+	if err != nil {
+		return errorDataValueWithStatus(ua.StatusBadAttributeIDInvalid)
+	}
 	return a.Value
 }
 
