@@ -40,7 +40,14 @@ func NewPrefixLogger(format string, args ...interface{}) *log.Logger {
 	if !Enable {
 		return log.New(io.Discard, "", 0)
 	}
-	return log.New(Logger.Writer(), "debug: "+fmt.Sprintf(format, args...), 0)
+	// Logger is exported and therefore assignable, so it can be nil. Fall back
+	// to os.Stderr in that case, which is where this function wrote before it
+	// derived its writer from Logger.
+	w := io.Writer(os.Stderr)
+	if Logger != nil {
+		w = Logger.Writer()
+	}
+	return log.New(w, "debug: "+fmt.Sprintf(format, args...), 0)
 }
 
 // Printf logs the message with Logger.Printf() when debug logging is enabled.

@@ -65,3 +65,30 @@ func TestLoggerDefaultsToStderr(t *testing.T) {
 		t.Fatalf("expected default logger writer to be os.Stderr")
 	}
 }
+
+// TestNewPrefixLoggerWithNilLogger checks that NewPrefixLogger does not panic
+// when Logger has been set to nil. Logger is exported, so an application can
+// assign it, and before NewPrefixLogger derived its writer from Logger this
+// case wrote to os.Stderr without touching Logger at all.
+func TestNewPrefixLoggerWithNilLogger(t *testing.T) {
+	origEnable := Enable
+	origLogger := Logger
+	t.Cleanup(func() {
+		Enable = origEnable
+		Logger = origLogger
+	})
+
+	Enable = true
+	Logger = nil
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NewPrefixLogger panicked with a nil Logger: %v", r)
+		}
+	}()
+
+	dlog := NewPrefixLogger("test: ")
+	if dlog.Writer() != os.Stderr {
+		t.Fatalf("expected fallback to os.Stderr, got %T", dlog.Writer())
+	}
+}
